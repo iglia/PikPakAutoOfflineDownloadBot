@@ -1,4 +1,19 @@
 # 更新日志
+
+## 2026-03-08
+- 新增TG机器人命令：
+  使用方法：
+- /alldown - 下载第一个账号网盘内所有文件
+- /alldown account_name - 下载指定账号网盘内所有文件
+主要特性：
+1. 账号选择 ：支持指定账号，默认使用第一个账号
+2. 冲突检测 ：检查是否有其他任务正在运行，避免冲突
+3. 文件扫描 ：递归扫描网盘内所有文件（包括子文件夹）
+4. 批量下载 ：将所有文件推送到 aria2 进行下载
+5. 重试机制 ：每个文件推送失败会自动重试5次
+6. 结果反馈 ：显示成功和失败的文件数量，并列出失败的文件（最多显示10个）
+
+
 ## 2024-12-5
 - 新增功能：支持指定离线下载至PikPak某个目录
 - 发送 /path 命令获取使用帮助
@@ -182,3 +197,4 @@ docker run \
 - [666wcy/pikpakdown](https://github.com/666wcy/pikpakdown)
 - [mumuchenchen/pikpak](https://github.com/mumuchenchen/pikpak)
 - [Quan666/PikPakAPI](https://github.com/Quan666/PikPakAPI)
+

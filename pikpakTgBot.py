@@ -2028,12 +2028,148 @@ def retry(update: Update, context: CallbackContext):
     )
 
 
+def alldown(update: Update, context: CallbackContext):
+    """下载当前账号网盘内所有文件"""
+    argv = context.args
+    
+    # 获取账号参数
+    if len(argv) > 0:
+        target_account = argv[0]
+        if target_account not in USER:
+            context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f'帳號 {target_account} 不存在！\n可用帳號: {", ".join(USER)}'
+            )
+            return
+    else:
+        target_account = USER[0]
+    
+    # 检查是否有其他任务在运行
+    if check_download_thread_status():
+        context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text='其他指令正在運行，為避免衝突，請稍後再試~'
+        )
+        return
+    
+    context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f'🔄 開始掃描帳號 {target_account} 網盤內所有檔案...'
+    )
+    
+    login(target_account)
+    
+    # 获取根目录下的所有文件
+    all_files = []
+    try:
+        for name, url, file_id, path in get_folder_all_file('', '', target_account):
+            all_files.append({
+                'name': name,
+                'url': url,
+                'file_id': file_id,
+                'path': path
+            })
+    except Exception as e:
+        context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f'❌ 掃描失敗: {e}'
+        )
+        logging.error(f'掃描帳號 {target_account} 網盤失敗: {e}')
+        return
+    
+    if len(all_files) == 0:
+        context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f'✅ 帳號 {target_account} 網盤內沒有檔案'
+        )
+        return
+    
+    context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f'📊 找到 {len(all_files)} 個檔案，開始推送到 aria2 下載...'
+    )
+    
+    # 推送到 aria2 下载
+    download_headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.9; rv:50.0) Gecko/20100101 Firefox/50.0'
+    }
+    
+    success_count = 0
+    fail_count = 0
+    failed_files = []
+    
+    for file_info in all_files:
+        name = file_info['name']
+        url = file_info['url']
+        path = file_info['path']
+        
+        jsonreq = json.dumps({
+            'jsonrpc': '2.0',
+            'id': 'qwer',
+            'method': 'aria2.addUri',
+            'params': [
+                f"token:{ARIA2_SECRET}",
+                [url],
+                {
+                    "dir": ARIA2_DOWNLOAD_PATH + '/' + path,
+                    "out": name,
+                    "header": download_headers
+                }
+            ]
+        })
+        
+        push_flag = False
+        for tries in range(5):
+            try:
+                response = requests.post(
+                    f'{SCHEMA}://{ARIA2_HOST}:{ARIA2_PORT}/jsonrpc',
+                    data=jsonreq,
+                    timeout=5
+                ).json()
+                push_flag = True
+                break
+            except requests.exceptions.ReadTimeout:
+                logging.warning(f'{name}第{tries + 1}(/5)次推送aria2下載超時，將重試！')
+                sleep(2)
+                continue
+            except Exception as e:
+                logging.warning(f'{name}第{tries + 1}(/5)次推送aria2下載出錯: {e}，將重試！')
+                sleep(2)
+                continue
+        
+        if push_flag:
+            success_count += 1
+            logging.info(f'{path}{name}已推送aria2下載')
+        else:
+            fail_count += 1
+            failed_files.append(f'{path}{name}')
+            logging.error(f'{path}{name}推送aria2下載失敗（多次重試無效）')
+    
+    # 发送结果
+    msg = f"📋 <b>下載結果</b>\n"
+    msg += f"✅ 成功: {success_count}  ❌ 失敗: {fail_count}\n"
+    
+    if failed_files:
+        msg += f"\n<b>失敗的檔案:</b>\n"
+        for failed_file in failed_files[:10]:
+            msg += f"  • {failed_file}\n"
+        if len(failed_files) > 10:
+            msg += f"  ... 還有 {len(failed_files) - 10} 個檔案\n"
+    
+    context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=msg,
+        parse_mode='HTML'
+    )
+
+
 start_handler = CommandHandler(['start', 'help'], start)
 pikpak_handler = CommandHandler('p', pikpak)
 clean_handler = CommandHandler(['clean', 'clear'], clean)
 account_handler = CommandHandler('account', account_manage)
 path_handler = CommandHandler('path', path)
 retry_handler = CommandHandler('retry', retry)
+alldown_handler = CommandHandler('alldown', alldown)
 magnet_handler = MessageHandler(Filters.regex('^magnet:\?xt=urn:btih:[0-9a-fA-F]{40,}.*$'), pikpak)
 
 dispatcher.add_handler(AdminHandler())
@@ -2044,6 +2180,7 @@ dispatcher.add_handler(pikpak_handler)
 dispatcher.add_handler(clean_handler)
 dispatcher.add_handler(path_handler)
 dispatcher.add_handler(retry_handler)
+dispatcher.add_handler(alldown_handler)
 
 def startup_recovery():
     """Bot 啟動時檢查是否有未完成的任務並恢復監控"""
